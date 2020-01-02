@@ -2,122 +2,147 @@ import logging
 import requests
 import os
 
-from dotenv import load_dotenv
 from datetime import datetime
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
+from telegram.ext import (
+    Updater,
+    CommandHandler,
+    MessageHandler,
+    Filters,
+    CallbackQueryHandler,
+)
 
-from boards import *
+from boards_config import boards
+from settings import TOKEN, PROXY
 
-load_dotenv()
 now = datetime.now()
-logging.basicConfig(filename=f"{os.getcwd()}\{now.strftime('%Y-%m-%d__%H')}.log", level=logging.INFO,
-                    filemode="a", format='%(levelname)s %(asctime)s : %(message)s')
-logging.info(f'-------------------{now}-------------------')
-
-PROXY = {
-    "proxy_url": "socks5://t1.learn.python.ru:1080",
-    "urllib3_proxy_kwargs": {"username": "learn", "password": "python"},
-}
+logging.basicConfig(
+    filename=f"{os.getcwd()}\{now.strftime('%Y-%m-%d__%H')}.log",
+    level=logging.INFO,
+    filemode="a",
+    format="%(levelname)s %(asctime)s : %(message)s",
+)
+logging.info(f"-------------------{now}-------------------")
 
 
 def main():
-
-    updater = Updater(os.getenv("TOKEN"),
-                      request_kwargs=PROXY,
-                      use_context=True,
-                      )
-
+    updater = Updater(TOKEN, request_kwargs=PROXY, use_context=True)
     updater.dispatcher.add_handler(CommandHandler("start", start))
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler("help", help))
+    updater.dispatcher.add_handler(MessageHandler(Filters.text, get_lots))
     updater.dispatcher.add_error_handler(error)
-
     updater.start_polling()
-
     updater.idle()
 
 
 def start(update, context):
-    update.message.reply_text(
-        keyboard["Start"]["text"], parse_mode=ParseMode.MARKDOWN, reply_markup=get_keyboard(keyboard["Start"]["board_view"]))
-    # Занесем в user_data словарь с вариантами следующей клавиатуры.
-    # Чтобы не прописывать ветвления переходов по кнопкам,
-    # в файле boards.py для каждой inlinekeyboard прописаны
-    # соответсвия между кнопками и тем, куда они ведут
-    context.user_data["routes"] = keyboard["Start"]["go_to"]
-    # Создаем состояние, чтобы в функции button можно было понять, какая была предыдущая клавиатура
-    context.user_data["came from"] = 'Start'
-    # Создаем словарь параметров, которые будут заполнятся в зависимости от нажатий клавиатуры
-    # и использоваться при формировании запросов
+    # 1. Сформируем стартовую клавиатуру.
+    #    Для этого заберем необходимые параметры из boards_config.py
+    # 2. Занесем в user_data словарь с вариантами следующей клавиатуры.
+    #    Это необходимо, чтобы не прописывать ветвления переходов по кнопкам.
+    #    Поэтому в файле boards_config.py для каждой inlinekeyboard прописаны
+    #    соответсвия между кнопками и тем, куда они ведут.
+    # 3. Создаем состояние, чтобы в функции button можно было понять,
+    #    какая была предыдущая клавиатура
+    # 4. Создаем словарь параметров, которые будут заполнятся
+    #    в зависимости от нажатий клавиатуры
+    #    и использоваться при формировании запросов
+    text = boards["Start"]["text"]
+    markup = get_keyboard(boards["Start"]["board_view"])
+    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN, reply_markup=markup)
+    context.user_data["routes"] = boards["Start"]["go_to"]
+    context.user_data["came from"] = "Start"
     context.user_data["params"] = {}
 
 
-def get_keyboard(inline_table):
+def get_keyboard(board_view):
     # Функция генерации клавиатуры, принимает вложенный список
     # с названиями кнопок клавиатуры и возвращает такой же по структуре
     # вложенный список из функций кнопок InlineKeyboardButton.
     # Сделал, с целью не плодить множество описаний функций клавиатур
-    # И упростить само описание инлайн-клавиатур, переведя его в вид словаря в файле boards.py
-    keyboard = []
+    # И упростить само описание инлайн-клавиатур,
+    # переведя его в вид словаря в файле boards_config.py
+    markup = []
 
-    for i, l in enumerate(inline_table):
-        keyboard.append([])
+    for i, l in enumerate(board_view):
+        markup.append([])
         for v in l:
-            keyboard[i].append(InlineKeyboardButton(v, callback_data=v))
+            markup[i].append(InlineKeyboardButton(v, callback_data=v))
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = InlineKeyboardMarkup(markup)
     return reply_markup
 
 
 def button(update, context):
-    # Забираем из callback_data данные нажатия
+    # 1. Забираем из callback_data данные нажатия в переменную data
+    # 2. Определяем имя вызванной клавиатуры. Для этого сопоставляем нажатую кнопку
+    #    с прописанной для нее клавиатурой в словаре routes
+    # 3. Забираем название предыдущей клавиатуры в last_page
+    # 4. Создаем переменную текста, которую отобразим на новой клавиатуре
+    # 5. Через маркер action определяем, нужно ли выполнить какое-либо действие для этой
+    #    клавиатуры
     query = update.callback_query
     data = query.data
-    # Определяем, какая клавиатура из ограниченного списка путей
-    # соответсвует преданному значению нажатия
-    name = context.user_data["routes"].get(data)
-    # Забираем название предыдущей клавиатуры
+    this_page = context.user_data["routes"].get(data)
     last_page = context.user_data["came from"]
-    # Создаем переменную текста, которую отобразим на новой клавиатуре
-    text = ''
-    # Здесь смысл в том, чтобы определить -надо записывать в параметры что-то, или нет
-    # Для этого используем маркер action прописанный для каждой клавиатуры в ее параметрах
-    if keyboard[last_page]['action'] == 'store':
-        context.user_data["params"].update({last_page: data})
+    text = ""
+    parameters = context.user_data["params"]
 
-    if keyboard[name]['action'] == "get chart":
-        pair = context.user_data["params"]["Chart_pair"]
-        interval = context.user_data["params"]["Interval"]
-        url = f"http://localhost:5000/plotly?pair={pair}&interval={interval}"
-        text = f"График {pair} {interval} {url}"
+    if boards[last_page]["action"] == "save":
+        parameters.update({last_page: data})
 
-    # if keyboard[last_page]['action'] == "send order":
-    #     pair = context.user_data["params"]["Trade_pair"]
-    #     exch = context.user_data["params"]["Exchange"]
+    if boards[this_page]["action"] == "get_chart":
+        text = get_chart(parameters)
 
-    #     get_lots(update, context)
-    #     lots = context.user_data["params"]["lots"]
+    if boards[last_page]["action"] == "make_order":
+        text = make_order(parameters)
 
-    #     try:
+    if boards[last_page]["action"] == "send_order":
+        text = send_order(parameters)
 
-    #     print(f'{pair} и {exch} -- {lots}')
-    #         text = f'Отправлен приказ на биржу {exch} на покупку {pair} в размере {lots}'
-    #     except (ValueError, TypeError):
-    #         text = "Напишите кол-во лотов"
+    if this_page in boards:
+        query.edit_message_text(
+            text=text or boards[this_page]["text"],
+            reply_markup=get_keyboard(boards[this_page]["board_view"]),
+        )
+        context.user_data["routes"] = boards[this_page]["go_to"]
 
-    if name in keyboard:
-        query.edit_message_text(text=text or keyboard[name]["text"],
-                                reply_markup=get_keyboard(keyboard[name]["board_view"]))
-        context.user_data["routes"] = keyboard[name]["go_to"]
-
-    context.user_data["came from"] = name
+    context.user_data["came from"] = this_page
 
 
-# def get_lots(update, context):
-#     lots = update.message.text
-#     lots = float(lots)
-#     context.user_data["params"].update({"lots": lots})
+def get_chart(parameters):
+    pair = parameters["Chart_pair"]
+    interval = parameters["Interval"]
+    url = f"http://localhost:5000/plotly?pair={pair}&interval={interval}"
+    text = f"График {pair} {interval} {url}"
+    return text
+
+
+def make_order(parameters):
+    # Сделать проверку на наличие лотов и что состоит только из цифр
+    pair = parameters["Trade_pair"]
+    exch = parameters["Exchange"]
+    lots = parameters["lots"]
+    direction = parameters["Buy_Sell"]
+    text = f"Отправить приказ на биржу {exch} : {direction.upper()}  {lots}  {pair} ?"
+    return text
+
+
+def send_order(parameters):
+    # Сделать проверку на наличие лотов и что состоит только из цифр
+    pair = parameters["Trade_pair"]
+    exch = parameters["Exchange"]
+    lots = parameters["lots"]
+    direction = parameters["Buy_Sell"]
+    text = f"{exch} : {direction.upper()}  {lots}  {pair}"
+    return text
+
+
+def get_lots(update, context):
+    lots = update.message.text
+    lots = float(lots)
+    context.user_data["params"].update({"lots": lots})
 
 
 def help(update, context):
