@@ -19,3 +19,6 @@ intervals = {
     "6 hours": 360,
     "12 hours": 720
 }
+
+chart_depth = 50
+plotly_url = os.getenv("server_ip")

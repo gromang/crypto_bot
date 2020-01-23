@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 from boards_config import boards
-from settings import TOKEN, PROXY, intervals
+from settings import TOKEN, PROXY, intervals, chart_depth, plotly_url
 
 now = datetime.now()
 logging.basicConfig(
@@ -105,6 +105,7 @@ def button(update, context):
         query.edit_message_text(
             text=text or boards[this_page]["text"],
             reply_markup=get_keyboard(boards[this_page]["board_view"]),
+            parse_mode=ParseMode.HTML
         )
         context.user_data["routes"] = boards[this_page]["go_to"]
 
@@ -113,9 +114,11 @@ def button(update, context):
 
 def get_chart(parameters):
     pair = parameters["Chart_pair"]
-    interval = intervals[parameters["Interval"]]
-    url = f"http://localhost:5000/plotly?pair={pair}&interval={interval}"
-    text = f"График {pair} {interval} {url}"
+    interval = parameters["Interval"]
+    interval_in_minutes = intervals[interval]
+    depth = chart_depth
+    url = f"{plotly_url}api?pair={pair}&interval={interval_in_minutes}&depth={depth}"
+    text = f'<a href="{url}">График {pair} {interval}</a>'
     return text
 
 
