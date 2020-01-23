@@ -76,7 +76,7 @@ boards = {
     "Interval": {
         "board_view": [
             ["1 min", "5 min", "15 min", "30 min"],
-            ["1 hour", "4 hour", "12 hour", "1 day"],
+            ["1 hour", "4 hours", "6 hours", "12 hours"],
             ["Назад"],
         ],
         "text": "Выберите интервал свечи",
@@ -86,9 +86,9 @@ boards = {
             "15 min": "Chart",
             "30 min": "Chart",
             "1 hour": "Chart",
-            "4 hour": "Chart",
-            "12 hour": "Chart",
-            "1 day": "Chart",
+            "4 hours": "Chart",
+            "6 hours": "Chart",
+            "12 hours": "Chart",
             "Назад": "Chart_pair",
         },
         "action": "save",

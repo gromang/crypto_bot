@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 
 from boards_config import boards
-from settings import TOKEN, PROXY
+from settings import TOKEN, PROXY, intervals
 
 now = datetime.now()
 logging.basicConfig(
@@ -113,7 +113,7 @@ def button(update, context):
 
 def get_chart(parameters):
     pair = parameters["Chart_pair"]
-    interval = parameters["Interval"]
+    interval = intervals[parameters["Interval"]]
     url = f"http://localhost:5000/plotly?pair={pair}&interval={interval}"
     text = f"График {pair} {interval} {url}"
     return text
